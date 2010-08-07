@@ -1,0 +1,22 @@
+pypdfcrop is a small program to [auto-]crop PDF files, similar in purpose
+to the 'pdfcrop' utility. This tool appends updated page layouts to the
+PDF file instead of re-rendering it entirely, which preserves more
+document metadata.  In particular, 'pdfcrop' drops document outlines,
+while this utility preserves them.
+
+Requires GhostScript, unless bounding boxes are specified manually. Also
+requires the pyPdf library.
+
+NEWS:
+
+2010-08-07
+
+Initial release. Although it's worked like a charm on every PDF
+I've tried it on, GhostScript complains about the resulting files. If it
+messes your PDFs up, just fire up a hex editor and delete everything after
+the second-to-last '%%EOF'.
+
+Also there's something weird about documents with rotated pages, although
+I think it relates to the way GhostScript is calculating the bounding
+boxes in those cases.
+
