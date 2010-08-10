@@ -18,13 +18,12 @@ import re
 import sys
 import subprocess
 import shutil
+import traceback
 from optparse import OptionParser, SUPPRESS_HELP
 from itertools import *
 
 from pyPdf import pdf
 from pyPdf.generic import *
-
-id = lambda thing: thing
 
 # The PdfFileReader object has no external way to identify the object ID of a
 # page. This hack avoids copy-pasted code at the expense of elegance.
@@ -43,18 +42,30 @@ def findLastXrefStart(stream):
         raise ValueError("Invalid PDF, I think")
     return int(lines[-2])
 
-def foldConsecutiveList(lst, ref):
-    # Add an indirect object reference to a list of lists of consecutive
-    # refs, such that the list remains a list of lists of consecutive refs
-    if not lst or lst[-1][-1].idnum != ref.idnum - 1:
-        lst.append([ref])
-    else:
-        lst[-1].append(ref)
-    return lst
-
 def crop(opts, infilename):
     infile = open(infilename, 'rb')
     pdfrdr = PdfFileReader_(infile)
+
+    # Ensure we can read this before continuing
+    try:
+        pdfrdr.getDocumentInfo()
+    except Exception: # No PDF-specific exception type?
+        # Some PDFs are encrypted with a blank password, try that first
+        try:
+            pdfrdr.decrypt('')
+            pdfrdr.getDocumentInfo()
+        except Exception:
+            if opts.password:
+                try:
+                    pdfrdr.decrypt(opts.password)
+                    pdfrdr.getDocumentInfo()
+                except Exception:
+                    traceback.print_exc()
+                    print ("Got an error when decrypting PDF using given "
+                           "password. Perhaps that's not it?")
+            else:
+                traceback.print_exc()
+                print "Got an error when opening PDF. Try --password."
 
     if opts.bbox is None:
         if opts.bboxes is None:
@@ -70,22 +81,26 @@ def crop(opts, infilename):
                 stderr = bbfile.read()
         bboxes = [map(int, s.split()[1:]) for s in stderr.split('\n')
                   if s.startswith(r'%%BoundingBox:')]
+        if not bboxes:
+            print "No bounding boxes detected. Dumping GS output.\n"
+            print stderr
+            raise EnvironmentError("'gs' call failed.")
     else:
         bboxes = repeat(opts.bbox)
 
+    print list(pdfrdr.pages)
     pages = {}
     for idx, (page, bbox) in enumerate(zip(pdfrdr.pages, bboxes)):
         pages[page.raw_get('/SelfHack')] = page
-        #if page.get('/Rotate') == 90 or page.get('/Rotate') == 270:
-        #    # TODO: I'm not sure this works right for 180 and 270.
-        #    rbbox = [bbox[1], bbox[0], bbox[3], bbox[2]]
-        #else:
-        #    rbbox = bbox
+        if opts.verbose:
+            print 'Page %d: media box %s, bounding box %s' % (
+                    idx, page['/MediaBox'], bbox)
+        margins = (idx % 2 and opts.margins) or opts.altmargins
         page[NameObject('/CropBox')] = ArrayObject([
-                NumberObject(bbox[0]-opts.margins[0]),
-                NumberObject(bbox[1]-opts.margins[1]),
-                NumberObject(bbox[2]+opts.margins[2]),
-                NumberObject(bbox[3]+opts.margins[3])])
+                NumberObject(bbox[0]-margins[0]),
+                NumberObject(bbox[1]-margins[1]),
+                NumberObject(bbox[2]+margins[2]),
+                NumberObject(bbox[3]+margins[3])])
         del page['/SelfHack']
 
     infile.seek(0)
@@ -111,19 +126,18 @@ def crop(opts, infilename):
         current_xref_start = outfile.tell()
         outfile.write('xref \n')
 
-        refs = sorted(xref.keys(), key = lambda ref: ref.idnum)
-        subsections = reduce(foldConsecutiveList, refs, [])
-
-        NEWLINE=' \n'
-        if len(NEWLINE) == 3:
-            # Windows? Anyway, just use '\n' for the xref entries
-            NEWLINE='\n'
+        subsections = []
+        for ref in sorted(xref.keys(), key = lambda ref: ref.idnum):
+            if not subsections or subsections[-1][-1].idnum != ref.idnum:
+                subsections.append([ref])
+            else:
+                subsections[-1].append(ref)
 
         for subsection in subsections:
             outfile.write('%d %d \n' % (subsection[0].idnum, len(subsection)))
             for ref in subsection:
-                outfile.write(
-                    '%010d %05d n %s' % (xref[ref], ref.generation, NEWLINE))
+                outfile.write(('%010d %05d n \n' %
+                               (xref[ref], ref.generation))[:20])
 
         outfile.write('trailer\n')
         trailer.writeToStream(outfile, encryption_key = None)
@@ -137,6 +151,8 @@ if __name__ == "__main__":
     usage=("pypdfcrop: Crop PDFs by appending instead of rewriting.\n"
            "Usage:     %prog [options] input.pdf [input2.pdf ...]\n")
     parser = OptionParser(usage=usage)
+    parser.add_option("-v", "--verbose", dest="verbose", default=False,
+                      help="Be verbose.", action="store_true")
     parser.add_option("-r", "--resolution", dest="resolution", default='100',
                       help="Adjust GhostScript bounding box resolution")
     parser.add_option("-b", "--bbox", dest="bbox", default=None,
@@ -150,16 +166,29 @@ if __name__ == "__main__":
     parser.add_option("-m", "--margin", dest="margins", default="0",
                       help="Pad bounding box with extra margins",
                       metavar='"<x1> [<y1> [<x2> [<y2>]]]"')
+    parser.add_option("-M", "--even-margin", dest="altmargins", default=None,
+                      help="Specify alternate margins for even-numbered pages",
+                      metavar='"<x1> [<y1> [<x2> [<y2>]]]"')
+    parser.add_option("-P", "--password", dest="password", default=None,
+                      help="Password to decrypt PDF.",
+                      metavar="PASSWORD")
     opts, args = parser.parse_args()
 
-    # Intelligently fill in missing margins
-    opts.margins = map(int, opts.margins.split())
-    if len(opts.margins) == 1:
-        opts.margins.append(opts.margins[0])
-    if len(opts.margins) == 2:
-        opts.margins.append(opts.margins[0])
-    if len(opts.margins) == 3:
-        opts.margins.append(opts.margins[1])
+    def expand_margins(margins):
+        margins = map(int, margins.split())
+        if len(margins) == 1:
+            margins.append(margins[0])
+        if len(margins) == 2:
+            margins.append(margins[0])
+        if len(margins) == 3:
+            margins.append(margins[1])
+        return margins
+
+    opts.margins = expand_margins(opts.margins)
+    if opts.altmargins is not None:
+        opts.altmargins = expand_margins(opts.altmargins)
+    else:
+        opts.altmargins = opts.margins
 
     if opts.bbox:
         opts.bbox = map(int, opts.bbox.split())

@@ -9,6 +9,13 @@ requires the pyPdf library.
 
 NEWS:
 
+2010-08-10
+
+Added support for encrypted PDFs (including those encrypted with a blank
+password). Also added even/odd alternating margins, to leave padding when
+printing the resulting document for binding.
+
+
 2010-08-07
 
 Initial release. Although it's worked like a charm on every PDF
