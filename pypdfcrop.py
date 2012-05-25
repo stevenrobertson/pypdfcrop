@@ -1,15 +1,18 @@
 #!/usr/bin/python
 #
-# Copyright 2010 Steven Robertson <steven@strobe.cc>
+# Copyright 2010 Steven Robertson <steven@strobe.cc>,
+# 2012 Max H. Gerlach <maxgerlach@gmail.com>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License version 2,
 # or any later version, as published by the Free Software Foundation.
 
+
 """
 A small program to [auto-]crop PDF files, similar in purpose to the 'pdfcrop'
 utility. This tool appends updated page layouts to the PDF file instead of
-re-rendering it entirely, which preserves more document metadata.
+re-rendering it entirely, which preserves more document metadata. There is
+additional support for cropping with conserved page widht or height.
 
 Requires GhostScript, unless bounding boxes are specified manually.
 """
@@ -95,6 +98,12 @@ def crop(opts, infilename):
         if opts.verbose:
             print 'Page %d: media box %s, bounding box %s' % (
                     idx, page['/MediaBox'], bbox)
+        if opts.topbottom:
+            bbox[0] = page['/MediaBox'][0]
+            bbox[2] = page['/MediaBox'][2]
+        if opts.leftright:
+            bbox[1] = page['/MediaBox'][1]
+            bbox[3] = page['/MediaBox'][3]
         margins = (idx % 2 and opts.margins) or opts.altmargins
         page[NameObject('/CropBox')] = ArrayObject([
                 NumberObject(bbox[0]-margins[0]),
@@ -160,6 +169,12 @@ if __name__ == "__main__":
                       metavar='"<x1> <y1> <x2> <y2>"')
     parser.add_option('-B', "--bbox-file", dest="bboxes", default=None,
                       help=SUPPRESS_HELP, metavar="FILE")
+    parser.add_option("-t", "--topbottom", dest="topbottom", default=False,
+                      help="Only crop the top and bottom of each page"
+                      "and conserve the original width", action="store_true")
+    parser.add_option("-l", "--leftright", dest="leftright", default=False,
+                      help="Only crop the left and right of each page"
+                      "and conserve the original height", action="store_true")
     parser.add_option("-o", "--outfile", dest="outfile", default=None,
                       help="Set output file (default is to append to input)",
                       metavar="FILE")
