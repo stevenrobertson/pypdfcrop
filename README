@@ -9,6 +9,12 @@ requires the pyPdf library.
 
 NEWS:
 
+2012-05-25
+
+Added support for cropping only from the top and bottom or the left
+and right sides of each page. In this way page width or page height
+can be conserved. (MHG)
+
 2010-08-10
 
 Added support for encrypted PDFs (including those encrypted with a blank
