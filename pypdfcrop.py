@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python2
 #
 # Copyright 2010 Steven Robertson <steven@strobe.cc>,
 # 2012 Max H. Gerlach <maxgerlach@gmail.com>
